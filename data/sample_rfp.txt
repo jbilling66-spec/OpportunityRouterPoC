@@ -1,0 +1,15 @@
+REQUEST FOR PROPOSAL — Enterprise Cloud ERP Implementation
+
+Organization: Meridian Energy Holdings (US-headquartered, ~$4.2B revenue, energy sector)
+
+Meridian seeks a qualified professional-services firm to select, design, and implement a
+new cloud-based ERP to replace its aging on-premise financial and supply-chain systems.
+
+Scope:
+- Lead platform selection and target-state design
+- Configure and build finance, procurement, and supply-chain modules
+- Migrate and reconcile data from legacy systems
+- Stand up the system to production with a target go-live within 14 months
+
+This is a net-new implementation; no platform has been selected yet, though the program is
+funded with executive sponsorship. Proposals due within 45 days.
