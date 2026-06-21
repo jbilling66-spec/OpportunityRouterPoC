@@ -125,6 +125,25 @@ def _run_and_store(text: str, source: str) -> dict:
     OPPS[thread_id] = snap
     return snap
 
+# --- seed sample data on startup --------------------------------------------
+# So the dashboard is never empty after a boot or restart. Runs the full pipeline on every
+# .txt in data/ when the server starts. Demo convenience: production would load real
+# opportunities from a persistent store instead of re-running the pipeline each boot.
+import glob
+
+
+@app.on_event("startup")
+def seed_samples() -> None:
+    if OPPS:                      # already populated (e.g. reload kept it) — don't double-seed
+        return
+    for path in sorted(glob.glob("data/*.txt")):
+        try:
+            text = open(path, encoding="utf-8").read()
+            _run_and_store(text, "startup-seed")
+        except Exception as exc:
+            print(f"[startup-seed] skipped {path}: {exc}")
+    print(f"[startup-seed] loaded {len(OPPS)} opportunities")
+
 
 # --- endpoints ---------------------------------------------------------------
 
@@ -159,16 +178,10 @@ def qualify(req: QualifyRequest) -> dict:
 
 @app.post("/upload")
 async def upload(file: UploadFile) -> dict:
-    raw = await file.read()
-    name = (file.filename or "").lower()
-    if name.endswith(".pdf"):
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(raw)
-            tmp_path = tmp.name
-        text = pdf_to_text(tmp_path)
-    else:
-        # plain text (.txt or anything decodable) — decode directly, no PDF parsing
-        text = raw.decode("utf-8", errors="replace")
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+    text = pdf_to_text(tmp_path)
     return _run_and_store(text, "upload")
 
 

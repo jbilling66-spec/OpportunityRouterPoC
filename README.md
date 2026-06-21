@@ -1,76 +1,96 @@
 # Opportunity Router — a cross-sell source multiplier
 
 A professional-services firm hears opportunities in a hundred corners and loses them because
-there's no mechanism to surface and route them across service lines. This is that mechanism: a
-BDR uploads any RFP/RFI PDF, the agent extracts and **classifies the work type**, a matching
-**skill** qualifies it and compiles a team-ready package, it **scores ICP fit**, and it
-**routes** the opportunity (with the package) to the right practice for a partner to act on.
+there's no mechanism to surface and route them across service lines. This is that mechanism:
+a BDR drops in an RFP/RFI, the agent extracts and classifies it, a matching **skill** qualifies
+it and compiles a team-ready package, it **scores ICP fit**, and it **routes** the opportunity to
+the right practice — with a human-in-the-loop review step where a service-line leader confirms,
+declines, or corrects the call.
 
-It's augmentation, not automation, of the decision that carries risk: the salesperson still
-makes the go/no-go from a ten-second summary. The agent makes that summary appear in seconds
-and preps the handoff so the moment they say "go," the right teams already have what they need.
+It's augmentation, not automation, of the decision that carries risk: a leader still makes the
+go/no-go. The agent makes the qualified summary appear in seconds, preps the handoff, and learns
+from every correction.
 
-## Architecture (single agent, deterministic skill routing)
+## Architecture
 
-```
-upload PDF → extract → classify work type → qualify (load matching SKILL.md) → score ICP fit → route
-                 └─(junk)→ insufficient_info → human review
-```
+A single shared-context LangGraph agent with a **two-tier classifier** and a cyclic
+human-in-the-loop review loop:
 
-Work-type specialization happens *inside one shared-context agent* via a deterministically
-loaded skill — not multiple agents. That's the right call for a dependent, shared-context
-workflow (multi-agent burns ~15× the tokens and shines only for parallel, independent tasks).
 
-## Skills are the heart (`src/skills/*/SKILL.md`)
+Two-tier classification is the core design: **Tier 1** picks the service line (the routing key),
+**Tier 2** picks the engagement type within that line (which selects the qualifying skill). A
+two-gate confidence check means low-confidence calls go to human review rather than guessing —
+the system defers when uncertain instead of misrouting.
 
-Four authored, Agent-SDK-compatible skill bundles — implementation, managed-services,
-optimization, pre-implementation — each encoding the qualification rubric, the ICP signals
-that matter *for that work type*, the deal-shape heuristics, and the package to compile for
-its downstream team. They load deterministically off the classifier (auditable, reproducible),
-and stay drop-in for native model-invocation later. **The `[FILL IN]` markers are where your
-domain judgment goes** — they're templates, deliberately.
+Specialization happens *inside one shared-context agent* via deterministically loaded skills, not
+multiple agents — the right call for a dependent, shared-context workflow (multi-agent burns far
+more tokens and shines only for parallel, independent tasks).
+
+## Scope (deliberate)
+
+Two service lines are built to full depth — **technology-implementation** and **audit-advisory** —
+each with four engagement-type skills (eight total). The classifier returns `unclear` for anything
+not confidently one of these, routing it to human review. This is intentional: prove the two-tier
+pattern on two lines well, degrade gracefully on the rest. Adding a line = a `ServiceLine` enum
+value + `ENGAGEMENT_TYPES` entry + a `skills/<line>/` folder.
+
+## Skills are the heart (`src/skills/<line>/<engagement>/SKILL.md`)
+
+Eight web-grounded skill rubrics, each encoding the qualification logic, the ICP signals that
+matter *for that engagement type*, deal-shape heuristics, and the package to compile for the
+downstream team. They load deterministically off the classifier (auditable, reproducible). Each is
+grounded in the firm's real published capabilities and fact-checked, not invented.
 
 ## The eval flywheel
 
-When a partner marks a routed opportunity "return — mis-routed" (`POST /review/{id}` with
-`return`), that's a gold-labeled correction. It feeds the LangSmith routing dataset, so
-classification/routing accuracy is *measured* and improves over time. ("Ignore" is noisier —
-recorded, not used as a label.)
+When a leader marks a routed opportunity **return — misrouted** (`POST /review/{id}` with `return`,
+optionally naming the correct line), that's a gold-labeled correction destined for the LangSmith
+routing dataset, so routing accuracy is *measured* and improves over time. **Decline** (correct
+route, passing) and **accept** (correct route, taken) are terminal and not training labels.
+
+## Web app
+
+A React dashboard (`static/index.html`, served by FastAPI) over the engine:
+
+- **Pipeline dashboard** — every processed opportunity, filterable by service line (the POV lens)
+  plus an `unclear` filter for the human-review pile.
+- **Detail view** — click a deal for the full readout: decision summary, deal shape, ranked
+  service-line candidates with reasoning, fit, routing, and the compiled team package.
+- **Review lane** — accept / decline / reassign actions that resume the paused graph through the
+  web layer, closing the human-in-the-loop live.
+- **Upload** — drop a `.txt` or `.pdf`, the pipeline runs, the new deal appears.
 
 ## Endpoints (`api.py`)
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /upload` | BDR uploads a PDF → extract → full pipeline |
-| `POST /qualify` | Run the pipeline on raw text |
-| `POST /qualify/stream` | SSE — one event per node (live trace / lifecycle hooks) |
-| `POST /review/{id}` | Partner action: accept / ignore / return (human-in-the-loop + eval label) |
+| `GET /` | the dashboard |
+| `GET /opportunities` | dashboard feed (optional `?service_line=` filter) |
+| `GET /opportunities/{id}` | one opportunity's full detail |
+| `POST /qualify` | run the pipeline on raw text |
+| `POST /upload` | upload a `.txt`/`.pdf` → run the pipeline |
+| `POST /review/{id}` | leader action: accept / decline / return (human-in-the-loop + eval label) |
+
+## State (demo)
+
+The opportunity list is in-memory; the LangGraph checkpointer holds paused-review state within a
+server session. This is a deliberate demo scope: production would persist opportunities in a
+database and swap the checkpointer for a durable store (SqliteSaver/PostgresSaver) so paused
+reviews survive restarts. The checkpointer abstraction makes that a contained change.
 
 ## Run it
 
 ```bash
-python -m venv .venv && source .venv/bin/activate          # Python 3.11 / 3.12
+conda activate opprouter            # or your venv; Python 3.11
 pip install -r requirements.txt
-cp .env.example .env   # ANTHROPIC_API_KEY, LANGSMITH_API_KEY, (optional) ROUTING_WEBHOOK_URL
-set -a && source .env && set +a
-python run.py data/sample_rfp.txt        # smoke test
-uvicorn api:app --reload                 # serving layer + /docs
-python evals/dataset.py && python evals/run_eval.py
+# set ANTHROPIC_API_KEY in .env
+python run.py data/sample_rfp.txt   # CLI smoke test
+uvicorn api:app --reload            # serving layer + dashboard at http://127.0.0.1:8000
+python seed.py                      # load sample opportunities into the dashboard
 ```
 
 ## ICP (`src/config/icp.py`)
 
 Enterprise / upper-mid-market, US-headquartered preferred. Verticals: energy, construction,
 communications & media, financial services, health care, government (federal + state & local),
-higher education, life sciences, real estate, tribal & gaming. Tune the file freely.
-
-## North star vs. buildable slice
-
-The full vision is a firm-wide, multi-service-line hub partners review daily. The honest
-*buildable slice* is one service line, end to end: upload → classify → qualify → route →
-partner review → accept/return. Build the slice; keep the vision as the north star; be ready
-to say which is which.
-
-> Nothing here has been run end-to-end yet — syntax-checked only. First local step is to stand
-> it up with real keys. PDF ingestion is a pragmatic baseline; harden OCR/large-doc handling
-> as you go.
+higher education, life sciences, real estate, tribal & gaming. Tune freely.

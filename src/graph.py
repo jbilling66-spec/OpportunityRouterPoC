@@ -15,7 +15,9 @@ The review node offers the opportunity to the top-ranked service line and pauses
 A RETURN advances the cursor and loops back to re-offer the next candidate; accept, decline, or an
 exhausted list ends the run. This back-edge is what makes the graph a true stateful cycle, not a DAG.
 
-Compiled with a checkpointer so interrupt() can persist state across the human pause.
+Compiled with an in-memory checkpointer so interrupt() can persist state across the human pause
+within a server session. The checkpointer is swappable: SqliteSaver or PostgresSaver would persist
+paused workflows across restarts in production — a one-line change here.
 """
 from __future__ import annotations
 from langgraph.graph import StateGraph, START, END

@@ -11,6 +11,12 @@
     body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 2rem; background: #f5f5f5; color: #1a1a1a; }
     h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
     .sub { color: #666; font-size: 0.85rem; margin-top: 0; margin-bottom: 1.25rem; }
+    .upload-bar { background: white; border: 1px dashed #bbb; border-radius: 6px; padding: 0.9rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .upload-bar .u-label { font-size: 0.85rem; color: #555; }
+    .upload-bar input[type=file] { font-size: 0.8rem; }
+    .u-btn { border: 1px solid #2e5699; background: #2e5699; color: white; padding: 0.4rem 0.9rem; border-radius: 5px; font-size: 0.85rem; cursor: pointer; }
+    .u-btn:disabled { opacity: 0.5; cursor: default; }
+    .u-status { font-size: 0.85rem; color: #2e5699; }
     .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; }
     .filter-btn { border: 1px solid #ccc; background: white; color: #333; padding: 0.4rem 0.8rem; border-radius: 999px; font-size: 0.8rem; cursor: pointer; }
     .filter-btn:hover { border-color: #888; }
@@ -18,6 +24,7 @@
     .deal { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; cursor: pointer; }
     .deal:hover { border-color: #aaa; }
     .deal.open { border-color: #1a1a1a; cursor: default; }
+    .deal.fresh { border-color: #2e5699; box-shadow: 0 0 0 2px rgba(46,86,153,0.12); }
     .deal-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
     .org { font-weight: 600; font-size: 1.05rem; }
     .meta { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
@@ -60,8 +67,41 @@
   </script>
 
   <script type="text/babel" data-presets="react">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
     const LINES = ["technology-implementation", "audit-advisory"];
+
+    function UploadBar({ onUploaded }) {
+      const [busy, setBusy] = useState(false);
+      const [status, setStatus] = useState(null);
+      const fileRef = useRef(null);
+
+      function submit() {
+        const f = fileRef.current && fileRef.current.files[0];
+        if (!f) { setStatus("Pick a file first."); return; }
+        setBusy(true);
+        setStatus(`Analyzing ${f.name}…`);
+        const form = new FormData();
+        form.append("file", f);
+        fetch("/upload", { method: "POST", body: form })
+          .then((res) => { if (!res.ok) throw new Error("Upload failed: " + res.status); return res.json(); })
+          .then((deal) => {
+            setBusy(false);
+            setStatus(`Added: ${deal.organization || "new opportunity"}`);
+            if (fileRef.current) fileRef.current.value = "";
+            onUploaded(deal);
+          })
+          .catch((e) => { setBusy(false); setStatus(e.message); });
+      }
+
+      return (
+        <div className="upload-bar">
+          <span className="u-label">Upload an RFP / opportunity (.txt or .pdf):</span>
+          <input type="file" ref={fileRef} accept=".txt,.pdf" disabled={busy} />
+          <button className="u-btn" onClick={submit} disabled={busy}>{busy ? "Analyzing…" : "Run it"}</button>
+          {status && <span className="u-status">{status}</span>}
+        </div>
+      );
+    }
 
     function ReviewActions({ o, onResolved }) {
       const [busy, setBusy] = useState(false);
@@ -146,6 +186,7 @@
       const [serviceLines, setServiceLines] = useState([]);
       const [filter, setFilter] = useState(null);
       const [expandedId, setExpandedId] = useState(null);
+      const [freshId, setFreshId] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
 
@@ -168,15 +209,24 @@
 
       function toggle(id) { setExpandedId(expandedId === id ? null : id); }
 
-      // When a review action resolves, replace that one deal in the list with the updated version.
       function onResolved(updated) {
         setOpportunities((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      }
+
+      // A freshly uploaded deal: add it to the top of the list and highlight it.
+      function onUploaded(deal) {
+        setFilter(null);                                  // clear filter so it's visible
+        setOpportunities((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)]);
+        setFreshId(deal.id);
+        setExpandedId(deal.id);                           // auto-expand the new one
       }
 
       return (
         <div>
           <h1>Opportunity Router</h1>
-          <p className="sub">Cross-sell pipeline · click a deal to see the reasoning and act on it</p>
+          <p className="sub">Cross-sell pipeline · upload a deal, filter by service line, click to act</p>
+
+          <UploadBar onUploaded={onUploaded} />
 
           <div className="filters">
             <button className={"filter-btn" + (filter === null ? " active" : "")} onClick={() => setFilter(null)}>All</button>
@@ -190,12 +240,13 @@
           ) : (
             opportunities.map((o) => {
               const open = expandedId === o.id;
+              const fresh = freshId === o.id;
               let pc = "pill";
               if (o.status === "routed") pc = "pill routed";
               else if (o.fit_band === "strong") pc = "pill strong";
               else if (o.status === "needs_review") pc = "pill review";
               return (
-                <div className={"deal" + (open ? " open" : "")} key={o.id} onClick={() => !open && toggle(o.id)}>
+                <div className={"deal" + (open ? " open" : "") + (fresh ? " fresh" : "")} key={o.id} onClick={() => !open && toggle(o.id)}>
                   <div className="deal-head">
                     <div>
                       <div className="org">{o.organization || "Unparsed document"}</div>
