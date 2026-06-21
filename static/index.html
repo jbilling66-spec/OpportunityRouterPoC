@@ -15,9 +15,36 @@
     .filter-btn { border: 1px solid #ccc; background: white; color: #333; padding: 0.4rem 0.8rem; border-radius: 999px; font-size: 0.8rem; cursor: pointer; }
     .filter-btn:hover { border-color: #888; }
     .filter-btn.active { background: #1a1a1a; color: white; border-color: #1a1a1a; }
-    .deal { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; }
+    .deal { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; cursor: pointer; }
+    .deal:hover { border-color: #aaa; }
+    .deal.open { border-color: #1a1a1a; cursor: default; }
+    .deal-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
     .org { font-weight: 600; font-size: 1.05rem; }
     .meta { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+    .pill { display: inline-block; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: #eee; color: #555; white-space: nowrap; }
+    .pill.strong { background: #e3f2e3; color: #2e6b2e; }
+    .pill.review { background: #fdf0e3; color: #99632e; }
+    .pill.routed { background: #e3eefd; color: #2e5699; }
+    .detail { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee; }
+    .detail h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 1.25rem 0 0.4rem; }
+    .detail h3:first-child { margin-top: 0; }
+    .detail p { margin: 0 0 0.5rem; font-size: 0.9rem; line-height: 1.5; }
+    .cand { display: flex; gap: 0.6rem; padding: 0.4rem 0; border-bottom: 1px solid #f0f0f0; font-size: 0.85rem; }
+    .cand-conf { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 2.8rem; }
+    .cand-line { color: #444; min-width: 11rem; }
+    .cand-why { color: #777; }
+    .pkg { font-size: 0.8rem; color: #555; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 0.6rem; overflow-x: auto; white-space: pre-wrap; }
+    .review-box { margin-top: 1.25rem; padding: 0.9rem; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
+    .review-box .label { font-size: 0.8rem; color: #666; margin-bottom: 0.6rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .act { border: 1px solid #ccc; background: white; padding: 0.4rem 0.9rem; border-radius: 5px; font-size: 0.85rem; cursor: pointer; }
+    .act:hover { border-color: #888; }
+    .act.accept { border-color: #2e6b2e; color: #2e6b2e; }
+    .act.decline { border-color: #99632e; color: #99632e; }
+    .act.reassign { border-color: #2e5699; color: #2e5699; }
+    .act:disabled { opacity: 0.5; cursor: default; }
+    select { font-size: 0.85rem; padding: 0.35rem; border-radius: 5px; border: 1px solid #ccc; }
+    .resolved { margin-top: 1rem; font-size: 0.9rem; color: #2e5699; font-weight: 500; }
     .empty { color: #888; }
     .error { color: #b00; background: #fee; padding: 1rem; border-radius: 6px; }
   </style>
@@ -34,66 +61,155 @@
 
   <script type="text/babel" data-presets="react">
     const { useState, useEffect } = React;
+    const LINES = ["technology-implementation", "audit-advisory"];
+
+    function ReviewActions({ o, onResolved }) {
+      const [busy, setBusy] = useState(false);
+      const [corrected, setCorrected] = useState(LINES[0]);
+      const [err, setErr] = useState(null);
+
+      function act(action, extra) {
+        setBusy(true);
+        setErr(null);
+        fetch(`/review/${o.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, ...extra }),
+        })
+          .then((res) => { if (!res.ok) throw new Error("Review failed: " + res.status); return res.json(); })
+          .then((updated) => { setBusy(false); onResolved(updated); })
+          .catch((e) => { setBusy(false); setErr(e.message); });
+      }
+
+      return (
+        <div className="review-box">
+          <div className="label">This deal is offered to <strong>{o.target_team}</strong>. As that leader, what's your call?</div>
+          <div className="actions">
+            <button className="act accept" disabled={busy} onClick={() => act("accept", {})}>Accept</button>
+            <button className="act decline" disabled={busy} onClick={() => act("decline", {})}>Decline</button>
+            <span style={{ margin: "0 0.25rem", color: "#bbb" }}>|</span>
+            <button className="act reassign" disabled={busy} onClick={() => act("return", { corrected_service_line: corrected })}>Reassign →</button>
+            <select value={corrected} disabled={busy} onChange={(e) => setCorrected(e.target.value)}>
+              {LINES.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+          {busy && <p className="meta" style={{ marginTop: "0.5rem" }}>Working…</p>}
+          {err && <p className="error" style={{ marginTop: "0.5rem" }}>{err}</p>}
+        </div>
+      );
+    }
+
+    function Detail({ o, onResolved }) {
+      return (
+        <div className="detail">
+          <h3>Decision summary</h3>
+          <p>{o.decision_summary || "—"}</p>
+
+          <h3>Deal shape</h3>
+          <p>{o.deal_shape || "—"}</p>
+
+          <h3>Ranked service-line candidates</h3>
+          {(o.ranked_candidates && o.ranked_candidates.length > 0) ? (
+            o.ranked_candidates.map((c, i) => (
+              <div className="cand" key={i}>
+                <span className="cand-conf">{c.confidence != null ? c.confidence.toFixed(2) : "—"}</span>
+                <span className="cand-line">{c.service_line}</span>
+                <span className="cand-why">{c.reasoning}</span>
+              </div>
+            ))
+          ) : <p>—</p>}
+
+          <h3>Fit</h3>
+          <p>{o.fit_score != null ? o.fit_score : "—"}/100 ({o.fit_band || "—"})</p>
+
+          <h3>Routing</h3>
+          <p>{o.target_team || "—"} · {o.routing_reason || ""}</p>
+
+          {o.team_package && Object.keys(o.team_package).length > 0 && (
+            <div>
+              <h3>Team package</h3>
+              <div className="pkg">{JSON.stringify(o.team_package, null, 2)}</div>
+            </div>
+          )}
+
+          {o.status === "needs_review" && o.current_offer ? (
+            <ReviewActions o={o} onResolved={onResolved} />
+          ) : (
+            <p className="resolved">✓ Resolved · status: {o.status}{o.review_log && o.review_log.length > 0 ? ` · ${o.review_log.length} action(s) logged` : ""}</p>
+          )}
+        </div>
+      );
+    }
 
     function Dashboard() {
       const [opportunities, setOpportunities] = useState([]);
       const [serviceLines, setServiceLines] = useState([]);
-      const [filter, setFilter] = useState(null);   // null = "All"
+      const [filter, setFilter] = useState(null);
+      const [expandedId, setExpandedId] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
 
-      // Re-fetch whenever the filter changes. The [filter] dependency is what makes
-      // clicking a filter button automatically reload the list.
-      useEffect(() => {
+      function load() {
         setLoading(true);
         const url = filter ? `/opportunities?service_line=${encodeURIComponent(filter)}` : "/opportunities";
         fetch(url)
-          .then((res) => {
-            if (!res.ok) throw new Error("API returned " + res.status);
-            return res.json();
-          })
+          .then((res) => { if (!res.ok) throw new Error("API returned " + res.status); return res.json(); })
           .then((data) => {
             setOpportunities(data.opportunities || []);
             setServiceLines(data.service_lines || []);
             setLoading(false);
           })
           .catch((err) => { setError(err.message); setLoading(false); });
-      }, [filter]);
+      }
+
+      useEffect(() => { load(); }, [filter]);
 
       if (error) return <div className="error">Could not load opportunities: {error}</div>;
+
+      function toggle(id) { setExpandedId(expandedId === id ? null : id); }
+
+      // When a review action resolves, replace that one deal in the list with the updated version.
+      function onResolved(updated) {
+        setOpportunities((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      }
 
       return (
         <div>
           <h1>Opportunity Router</h1>
-          <p className="sub">Cross-sell pipeline · filter by service line to see one team's view</p>
+          <p className="sub">Cross-sell pipeline · click a deal to see the reasoning and act on it</p>
 
           <div className="filters">
-            <button
-              className={"filter-btn" + (filter === null ? " active" : "")}
-              onClick={() => setFilter(null)}
-            >All</button>
+            <button className={"filter-btn" + (filter === null ? " active" : "")} onClick={() => setFilter(null)}>All</button>
             {serviceLines.map((sl) => (
-              <button
-                key={sl}
-                className={"filter-btn" + (filter === sl ? " active" : "")}
-                onClick={() => setFilter(sl)}
-              >{sl}</button>
+              <button key={sl} className={"filter-btn" + (filter === sl ? " active" : "")} onClick={() => setFilter(sl)}>{sl}</button>
             ))}
           </div>
 
-          {loading ? (
-            <p>Loading…</p>
-          ) : opportunities.length === 0 ? (
+          {loading ? <p>Loading…</p> : opportunities.length === 0 ? (
             <p className="empty">No opportunities in this view.</p>
           ) : (
-            opportunities.map((o) => (
-              <div className="deal" key={o.id}>
-                <div className="org">{o.organization || "Unparsed document"}</div>
-                <div className="meta">
-                  {o.service_line || "—"} / {o.engagement_type || "—"} · fit {o.fit_score ?? "—"} ({o.fit_band || "—"}) · status: {o.status}
+            opportunities.map((o) => {
+              const open = expandedId === o.id;
+              let pc = "pill";
+              if (o.status === "routed") pc = "pill routed";
+              else if (o.fit_band === "strong") pc = "pill strong";
+              else if (o.status === "needs_review") pc = "pill review";
+              return (
+                <div className={"deal" + (open ? " open" : "")} key={o.id} onClick={() => !open && toggle(o.id)}>
+                  <div className="deal-head">
+                    <div>
+                      <div className="org">{o.organization || "Unparsed document"}</div>
+                      <div className="meta">{o.service_line || "—"} / {o.engagement_type || "—"}</div>
+                    </div>
+                    <span className={pc}>fit {o.fit_score ?? "—"} · {o.status}</span>
+                  </div>
+                  {open && <Detail o={o} onResolved={onResolved} />}
+                  {open && (
+                    <div className="meta" style={{ marginTop: "0.75rem", cursor: "pointer", color: "#1a1a1a" }} onClick={() => toggle(o.id)}>▲ collapse</div>
+                  )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       );
