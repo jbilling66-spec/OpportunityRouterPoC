@@ -11,13 +11,11 @@ from .schemas import (ServiceLine, ServiceLineClassification, EngagementClassifi
                       FitScore, Qualification, RoutingDecision, ExtractedOpportunity)
 from . import notifications
 
-# Service line -> the team that owns the response. Tune to the firm's org.
+# Service line -> the team that owns the response. Two lines are built to full depth;
+# anything else classifies as UNCLEAR and falls to human_review via the gates below.
 TEAM_MAP = {
     ServiceLine.TECHNOLOGY_IMPLEMENTATION: "delivery / proposal team",
     ServiceLine.AUDIT_ADVISORY: "assurance / audit engagement team",
-    ServiceLine.TAX: "tax practice",
-    ServiceLine.ACCOUNTING: "outsourced accounting",
-    ServiceLine.RISK_ADVISORY: "risk advisory",
 }
 
 

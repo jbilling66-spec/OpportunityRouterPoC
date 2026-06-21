@@ -139,7 +139,7 @@ def list_opportunities(service_line: Optional[str] = None) -> dict:
     items = list(OPPS.values())
     if service_line:
         items = [o for o in items if o.get("service_line") == service_line]
-    return {"opportunities": items, "service_lines": [s.value for s in ServiceLine if s != ServiceLine.UNCLEAR]}
+    return {"opportunities": items, "service_lines": [s.value for s in ServiceLine]}
 
 
 @app.get("/opportunities/{opportunity_id}")

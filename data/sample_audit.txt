@@ -1,0 +1,3 @@
+Subject: SOC 2 Type II Examination — Vendor Requirement
+
+Northwind Logistics Cloud, a US-based mid-market SaaS provider of supply-chain visibility software (~$60M ARR), needs a SOC 2 Type II examination covering Security, Availability, and Confidentiality. Three enterprise customers have made a SOC 2 report a contractual condition of renewal, with the largest renewal closing in Q3. The company has never undergone a SOC examination and does not currently have a report. They have an internal security lead but no formal control documentation. They are asking for an examination and the resulting attestation report, not advisory help building controls. Timeline pressure is driven by the customer renewal date roughly five months out.

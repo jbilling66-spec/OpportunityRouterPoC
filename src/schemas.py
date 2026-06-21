@@ -29,13 +29,12 @@ class ServiceLine(str, Enum):
 
     Values match config.icp.SERVICE_LINES AND the skills/ folder names, so the
     loader maps a ServiceLine straight to a directory — no lookup table needed.
+    Two lines are built to full depth; UNCLEAR is the honest escape hatch when a
+    deal isn't confidently one of them.
     """
     TECHNOLOGY_IMPLEMENTATION = "technology-implementation"
     AUDIT_ADVISORY = "audit-advisory"
-    TAX = "tax"
-    ACCOUNTING = "accounting"
-    RISK_ADVISORY = "risk-advisory"
-    UNCLEAR = "unclear"                 # no confident line -> human review
+    UNCLEAR = "unclear"                 # not confidently one of the supported lines -> human review
 
 
 class ServiceLineCandidate(BaseModel):

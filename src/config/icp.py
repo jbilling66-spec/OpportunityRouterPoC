@@ -53,11 +53,14 @@ AUTO_ROUTE_CONFIDENCE_GATE = 0.75
 
 # --- Service lines (grounds the relevance gate: "is this even our kind of work?") -----
 # The firm's service lines. The relevance gate judges in/out-of-scope against these.
-# This is also Tier-1 of the two-tier classifier. Tune to the firm.  [FILL IN to taste]
+# This is also Tier-1 of the two-tier classifier.
+#
+# SCOPE NOTE: Two service lines are built to full depth (engagement-type classification +
+# grounded SKILL.md rubrics). The first-tier classifier chooses between these two or returns
+# UNCLEAR for anything that isn't confidently one of them — which routes to human review rather
+# than guessing. This is a deliberate scope choice: prove the two-tier pattern on two lines well,
+# and degrade gracefully on everything else.
 SERVICE_LINES = [
     "technology-implementation",   # ERP/cloud system selection, build, optimization, advisory
     "audit-advisory",              # financial-statement audit, SOC, compliance readiness, strategy
-    "tax",                         # compliance, planning, provision
-    "accounting",                  # outsourced accounting, financial reporting
-    "risk-advisory",               # risk, controls, regulatory
 ]

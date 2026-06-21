@@ -9,12 +9,17 @@
   <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 2rem; background: #f5f5f5; color: #1a1a1a; }
-    h1 { font-size: 1.4rem; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #666; font-size: 0.85rem; margin-top: 0; margin-bottom: 1.25rem; }
+    .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; }
+    .filter-btn { border: 1px solid #ccc; background: white; color: #333; padding: 0.4rem 0.8rem; border-radius: 999px; font-size: 0.8rem; cursor: pointer; }
+    .filter-btn:hover { border-color: #888; }
+    .filter-btn.active { background: #1a1a1a; color: white; border-color: #1a1a1a; }
     .deal { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; }
     .org { font-weight: 600; font-size: 1.05rem; }
     .meta { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
     .empty { color: #888; }
-    .error { color: #b00; background: #fee; padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+    .error { color: #b00; background: #fee; padding: 1rem; border-radius: 6px; }
   </style>
 </head>
 <body>
@@ -32,34 +37,54 @@
 
     function Dashboard() {
       const [opportunities, setOpportunities] = useState([]);
+      const [serviceLines, setServiceLines] = useState([]);
+      const [filter, setFilter] = useState(null);   // null = "All"
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
 
+      // Re-fetch whenever the filter changes. The [filter] dependency is what makes
+      // clicking a filter button automatically reload the list.
       useEffect(() => {
-        fetch("/opportunities")
+        setLoading(true);
+        const url = filter ? `/opportunities?service_line=${encodeURIComponent(filter)}` : "/opportunities";
+        fetch(url)
           .then((res) => {
             if (!res.ok) throw new Error("API returned " + res.status);
             return res.json();
           })
           .then((data) => {
             setOpportunities(data.opportunities || []);
+            setServiceLines(data.service_lines || []);
             setLoading(false);
           })
-          .catch((err) => {
-            setError(err.message);
-            setLoading(false);
-          });
-      }, []);
+          .catch((err) => { setError(err.message); setLoading(false); });
+      }, [filter]);
 
-      if (loading) return <p>Loading…</p>;
       if (error) return <div className="error">Could not load opportunities: {error}</div>;
 
       return (
         <div>
           <h1>Opportunity Router</h1>
-          <p className="meta">{opportunities.length} opportunit{opportunities.length === 1 ? "y" : "ies"} in the pipeline</p>
-          {opportunities.length === 0 ? (
-            <p className="empty">No opportunities yet. Run one through /qualify to see it here.</p>
+          <p className="sub">Cross-sell pipeline · filter by service line to see one team's view</p>
+
+          <div className="filters">
+            <button
+              className={"filter-btn" + (filter === null ? " active" : "")}
+              onClick={() => setFilter(null)}
+            >All</button>
+            {serviceLines.map((sl) => (
+              <button
+                key={sl}
+                className={"filter-btn" + (filter === sl ? " active" : "")}
+                onClick={() => setFilter(sl)}
+              >{sl}</button>
+            ))}
+          </div>
+
+          {loading ? (
+            <p>Loading…</p>
+          ) : opportunities.length === 0 ? (
+            <p className="empty">No opportunities in this view.</p>
           ) : (
             opportunities.map((o) => (
               <div className="deal" key={o.id}>
