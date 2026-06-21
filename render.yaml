@@ -6,7 +6,8 @@ services:
     name: opportunity-router
     runtime: python
     plan: free                  # free tier spins down on idle (~30-60s cold start) and has
-                                # ephemeral disk — fine here: state is in-memory and re-seeded.
+                                # ephemeral disk — fine here: state is in-memory (demo scope).
+    healthCheckPath: /health
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -14,13 +15,15 @@ services:
         value: "3.11.9"
       - key: ANTHROPIC_API_KEY     # required — the reasoning engine (claude-sonnet-4-6)
         sync: false
-      - key: LANGSMITH_TRACING     # optional — observability
-        value: "true"
+      - key: LANGSMITH_TRACING     # set "true" (+ LANGSMITH_API_KEY) to enable tracing; unset = quiet
+        sync: false
       - key: LANGSMITH_API_KEY
         sync: false
       - key: LANGSMITH_PROJECT
         value: opportunity-router
       - key: ROUTING_WEBHOOK_URL   # optional — notify on auto-route
+        sync: false
+      - key: SEED_ON_STARTUP       # optional — "true" to populate the dashboard with samples on boot
         sync: false
       - key: ALLOWED_ORIGINS       # optional — CORS allowlist; unset = open (* ) for the demo
         sync: false

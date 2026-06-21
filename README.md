@@ -94,9 +94,13 @@ python seed.py                      # (second terminal, server running) load sam
 
 `render.yaml` is a Render blueprint that stands the app up as one web service (API + dashboard):
 build `pip install -r requirements.txt`, start `uvicorn api:app --host 0.0.0.0 --port $PORT`. Set
-`ANTHROPIC_API_KEY` (and optionally the `LANGSMITH_*` vars) as secrets in the Render dashboard. The
-free tier spins down on idle and has an ephemeral disk — fine here, since state is in-memory and
-re-seeded. Lock down CORS for a real frontend by setting `ALLOWED_ORIGINS` (defaults to open `*`).
+`ANTHROPIC_API_KEY` (and, for tracing, the `LANGSMITH_*` vars) as secrets in the Render dashboard.
+
+State is in-memory by design (demo scope), so the free tier's idle spin-down clears it. Two
+implications and how to handle them: **warm the service before a demo** (the first request after idle
+pays a ~30–60s cold start), and set **`SEED_ON_STARTUP=true`** to repopulate the dashboard with the
+bundled sample documents on boot (off by default — it costs LLM calls on each cold start). Lock down
+CORS for a real frontend with `ALLOWED_ORIGINS` (defaults to open `*`).
 
 ## ICP (`src/config/icp.py`)
 

@@ -25,11 +25,14 @@ load_dotenv()
 
 import os
 import tempfile
+import threading
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -39,7 +42,18 @@ from src.graph import agent
 from src.ingestion.pdf_loader import pdf_to_text
 from src.schemas import ServiceLine
 
-app = FastAPI(title="Opportunity Router — a cross-sell source multiplier")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Optional demo convenience: when SEED_ON_STARTUP is truthy, populate the dashboard with the
+    # bundled sample documents on boot — so a cold visitor never lands on an empty board on a host
+    # whose free tier wipes in-memory state on idle spin-down. Runs in a background thread so it
+    # never blocks startup; off by default so normal deploys pay nothing.
+    if os.environ.get("SEED_ON_STARTUP", "").strip().lower() in ("1", "true", "yes"):
+        threading.Thread(target=_seed_samples, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Opportunity Router — a cross-sell source multiplier", lifespan=lifespan)
 
 # CORS allowlist from env (comma-separated); unset or "*" leaves it open, which is fine for the
 # synthetic-data demo. Set ALLOWED_ORIGINS to your frontend domain to lock it down in production.
@@ -134,6 +148,18 @@ def _run_and_store(text: str, source: str) -> dict:
     return snap
 
 
+def _seed_samples() -> None:
+    """Run every bundled sample document through the pipeline so the dashboard isn't empty.
+    Best-effort: a failure on one document (e.g. missing API key) is logged and skipped, not fatal.
+    Invoked from the lifespan hook only when SEED_ON_STARTUP is set."""
+    data_dir = Path(__file__).resolve().parent / "data"
+    for path in sorted(data_dir.glob("*.txt")):
+        try:
+            _run_and_store(path.read_text(encoding="utf-8"), "seed")
+        except Exception as exc:  # never let seeding crash the server
+            print(f"[seed] skipped {path.name}: {exc}")
+
+
 # --- endpoints ---------------------------------------------------------------
 
 @app.get("/health")
@@ -165,10 +191,9 @@ def qualify(req: QualifyRequest) -> dict:
     return _run_and_store(req.document_text, req.source)
 
 
-@app.post("/upload")
-async def upload(file: UploadFile) -> dict:
-    raw = await file.read()
-    name = (file.filename or "").lower()
+def _process_upload(raw: bytes, filename: str) -> dict:
+    """Decode/parse the uploaded bytes and run the pipeline. Blocking (PDF parse + LLM calls)."""
+    name = (filename or "").lower()
     if name.endswith(".pdf"):
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(raw)
@@ -178,6 +203,14 @@ async def upload(file: UploadFile) -> dict:
         # plain text (.txt or anything decodable) — decode directly, no PDF parsing
         text = raw.decode("utf-8", errors="replace")
     return _run_and_store(text, "upload")
+
+
+@app.post("/upload")
+async def upload(file: UploadFile) -> dict:
+    raw = await file.read()
+    # PDF parsing and the pipeline are blocking and slow; run them off the event loop so a single
+    # upload doesn't stall other requests (e.g. /health) on a single-worker deploy.
+    return await run_in_threadpool(_process_upload, raw, file.filename or "")
 
 
 class ReviewRequest(BaseModel):
