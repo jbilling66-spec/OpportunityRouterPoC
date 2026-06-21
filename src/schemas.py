@@ -1,10 +1,11 @@
 """Structured schemas for the opportunity pipeline.
 
 The pipeline turns a raw uploaded document into a routed, reviewable opportunity:
-  extract -> classify work type -> qualify (via the matching skill) -> score ICP fit -> route.
+  extract -> check relevance -> classify service line (Tier 1) -> classify engagement type
+  (Tier 2) -> qualify (via the matching skill) -> score ICP fit -> route -> human review.
 
-WorkType is the routing key: the classifier's output deterministically selects which
-skill loads, and the skill knows which downstream team to compile a package for.
+Two-tier classification is the routing key: Tier 1 (ServiceLine) selects the skills/<line>/
+folder, Tier 2 (engagement type) selects the specific SKILL.md that loads deterministically.
 """
 
 from __future__ import annotations
@@ -14,13 +15,6 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-
-class WorkType(str, Enum):
-    IMPLEMENTATION = "implementation"          # net-new build / system implementation
-    MANAGED_SERVICES = "managed_services"      # ongoing operate / support
-    OPTIMIZATION = "optimization"              # tune / improve an existing system
-    PRE_IMPLEMENTATION = "pre_implementation"  # advisory / readiness / roadmap
-    UNCLEAR = "unclear"                        # classifier not confident -> human review
 
 # --- Tier 1: service line (the routing key, generalized) ---------------------
 
@@ -107,14 +101,8 @@ class ExtractedOpportunity(BaseModel):
         return bool(self.scope_signals) or bool(self.summary.strip())
 
 
-class WorkTypeClassification(BaseModel):
-    work_type: WorkType
-    confidence: float = Field(description="0-1. Below the gate threshold -> human review, not auto-route.")
-    reasoning: str
-
-
 class FitScore(BaseModel):
-    """ICP fit, scored against config/icp.py + the work-type skill's criteria."""
+    """ICP fit, scored against config/icp.py + the engagement skill's criteria."""
 
     score: int = Field(description="0-100 fit score.")
     band: str = Field(description="'strong' | 'qualified' | 'weak' | 'pass'.")

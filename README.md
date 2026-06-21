@@ -64,6 +64,7 @@ A React dashboard (`static/index.html`, served by FastAPI) over the engine:
 
 | Endpoint | Purpose |
 |---|---|
+| `GET /health` | liveness check |
 | `GET /` | the dashboard |
 | `GET /opportunities` | dashboard feed (optional `?service_line=` filter) |
 | `GET /opportunities/{id}` | one opportunity's full detail |
@@ -83,11 +84,19 @@ reviews survive restarts. The checkpointer abstraction makes that a contained ch
 ```bash
 conda activate opprouter            # or your venv; Python 3.11
 pip install -r requirements.txt
-# set ANTHROPIC_API_KEY in .env
+cp .env.example .env                 # then set ANTHROPIC_API_KEY (LangSmith vars optional)
 python run.py data/sample_rfp.txt   # CLI smoke test
 uvicorn api:app --reload            # serving layer + dashboard at http://127.0.0.1:8000
-python seed.py                      # load sample opportunities into the dashboard
+python seed.py                      # (second terminal, server running) load samples into the dashboard
 ```
+
+## Deploy
+
+`render.yaml` is a Render blueprint that stands the app up as one web service (API + dashboard):
+build `pip install -r requirements.txt`, start `uvicorn api:app --host 0.0.0.0 --port $PORT`. Set
+`ANTHROPIC_API_KEY` (and optionally the `LANGSMITH_*` vars) as secrets in the Render dashboard. The
+free tier spins down on idle and has an ephemeral disk — fine here, since state is in-memory and
+re-seeded. Lock down CORS for a real frontend by setting `ALLOWED_ORIGINS` (defaults to open `*`).
 
 ## ICP (`src/config/icp.py`)
 

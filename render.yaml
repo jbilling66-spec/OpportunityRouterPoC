@@ -1,0 +1,26 @@
+# Render Blueprint — deploys the FastAPI app + dashboard as one web service.
+# Docs: https://render.com/docs/blueprint-spec
+# Secrets (sync: false) are set in the Render dashboard, never committed.
+services:
+  - type: web
+    name: opportunity-router
+    runtime: python
+    plan: free                  # free tier spins down on idle (~30-60s cold start) and has
+                                # ephemeral disk — fine here: state is in-memory and re-seeded.
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ANTHROPIC_API_KEY     # required — the reasoning engine (claude-sonnet-4-6)
+        sync: false
+      - key: LANGSMITH_TRACING     # optional — observability
+        value: "true"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: opportunity-router
+      - key: ROUTING_WEBHOOK_URL   # optional — notify on auto-route
+        sync: false
+      - key: ALLOWED_ORIGINS       # optional — CORS allowlist; unset = open (* ) for the demo
+        sync: false

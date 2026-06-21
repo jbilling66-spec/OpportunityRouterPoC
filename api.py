@@ -13,17 +13,20 @@ Endpoints
 
 State note (demo): processed opportunities live in an in-memory dict (OPPS), and paused graph
 state lives in the InMemorySaver checkpointer keyed by thread_id. Both survive across requests
-but NOT across a server restart. Paused graph state DOES persist (SqliteSaver, checkpoints.sqlite);
-the OPPS dashboard list is re-seeded on startup so it's never empty. Production would swap OPPS for a
-DB-backed store too. No auth: synthetic data only; the service-line filter is a view lens, not access control.
+but NOT across a server restart (InMemorySaver holds checkpoints in process memory). The
+checkpointer is swappable for SqliteSaver/PostgresSaver to survive restarts in production, where
+OPPS would also become a DB-backed store. No auth: synthetic data only; the service-line filter
+is a view lens, not access control.
 """
 from __future__ import annotations
 
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
 import tempfile
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile
@@ -37,7 +40,12 @@ from src.ingestion.pdf_loader import pdf_to_text
 from src.schemas import ServiceLine
 
 app = FastAPI(title="Opportunity Router — a cross-sell source multiplier")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# CORS allowlist from env (comma-separated); unset or "*" leaves it open, which is fine for the
+# synthetic-data demo. Set ALLOWED_ORIGINS to your frontend domain to lock it down in production.
+_origins_env = os.environ.get("ALLOWED_ORIGINS", "*").strip()
+_allow_origins = ["*"] if _origins_env in ("", "*") else [o.strip() for o in _origins_env.split(",")]
+app.add_middleware(CORSMiddleware, allow_origins=_allow_origins, allow_methods=["*"], allow_headers=["*"])
 
 # In-memory store of processed opportunities, keyed by the thread_id used to run/resume the graph.
 # Demo-only: a real deployment persists this. thread_id doubles as the opportunity id.
@@ -204,7 +212,10 @@ def review(opportunity_id: str, req: ReviewRequest) -> dict:
 # The API serves data (above) AND the dashboard page (here), so one server does both.
 from fastapi.responses import FileResponse
 
+# Absolute path so the page serves regardless of the process's working directory.
+_DASHBOARD = Path(__file__).resolve().parent / "static" / "index.html"
+
 
 @app.get("/")
 def dashboard() -> FileResponse:
-    return FileResponse("static/index.html")
+    return FileResponse(_DASHBOARD)

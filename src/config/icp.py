@@ -40,7 +40,7 @@ TARGET_VERTICALS = [
 FIT_WEIGHTS = {
     "firmographic": 35,   # right size + US-based
     "vertical": 25,       # in a target vertical
-    "work_type_fit": 30,  # graded by the skill's rubric  [FILL IN per skill]
+    "engagement_fit": 30,  # graded by the engagement skill's rubric  [FILL IN per skill]
     "deal_signals": 10,   # value / timeline / urgency
 }
 

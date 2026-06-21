@@ -7,3 +7,6 @@ checkpoints.sqlite
 checkpoints.sqlite-shm
 checkpoints.sqlite-wal
 *.bak
+# stray logs
+npm-debug.log
+*.log

@@ -11,8 +11,8 @@ OBSERVABILITY — everything lands in LangSmith, with depth:
 - The agent's internal tool/step events are captured below and attached to the run, so you see
   WHAT it did inside the loop, not just the final profile.
 - For full per-tool-call nested spans across both runtimes, use the OpenTelemetry bridge:
-  set LANGSMITH_OTEL_ENABLED=true and point an OTEL exporter at LangSmith's OTLP endpoint
-  (see DEPLOYMENT.md / HANDOFF §7). That's the vendor-neutral "one pane of glass" path.
+  set LANGSMITH_OTEL_ENABLED=true and point an OTEL exporter at LangSmith's OTLP endpoint.
+  That's the vendor-neutral "one pane of glass" path.
   Verify what telemetry the Agent SDK emits — GenAI OTEL conventions are still maturing.
 
 HONEST NOTES: the Agent SDK API (tool names, message shapes, options) evolves and is NOT
