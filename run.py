@@ -3,12 +3,14 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 import sys
+import uuid
 from src.graph import agent
 from src.ingestion.pdf_loader import pdf_to_text
 
 def main(path: str) -> None:
     text = pdf_to_text(path) if path.lower().endswith(".pdf") else open(path, encoding="utf-8").read()
-    r = agent.invoke({"document_text": text, "source": "cli", "errors": []})
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    r = agent.invoke({"document_text": text, "source": "cli", "errors": []}, config)
     ex = r.get("extracted")
     sl_cls = r.get("service_line_classification")
     eng_cls = r.get("engagement_classification")

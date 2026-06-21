@@ -150,6 +150,33 @@ class ReviewStatus(str, Enum):
     RETURNED_FOR_REANALYSIS = "returned"         # GOLD eval label: routing was wrong
 
 
+class ReviewAction(str, Enum):
+    """What a service-line leader does with an offered opportunity.
+
+    ACCEPT and DECLINE are terminal; only RETURN advances the cursor and drives the loop.
+    """
+    ACCEPT = "accept"     # correctly routed AND wanted -> this team takes it (terminal)
+    DECLINE = "decline"   # correctly routed but passing -> "Not a fit" lane (terminal, NOT a label)
+    RETURN = "return"     # MISROUTED, not my line -> advance to next ranked candidate (gold eval label)
+
+
+class ReviewDecision(BaseModel):
+    """One human action on an offered opportunity.
+
+    DECLINE is a clean business 'no' on a correct route — it ends the opportunity and is not a
+    training signal. RETURN means the classifier was wrong; it advances the offer to the next
+    ranked service line and is captured as a gold-labeled correction for the LangSmith dataset.
+    On a RETURN the leader may also name where it actually belongs (corrected_service_line),
+    which makes a richer label: both the wrong answer and the right one.
+    """
+    action: ReviewAction
+    offered_service_line: ServiceLine = Field(description="Which ranked candidate this was offered to.")
+    corrected_service_line: Optional[ServiceLine] = Field(
+        default=None,
+        description="On RETURN only: where the leader says it actually belongs. Optional but valuable.")
+    note: str = Field(default="", description="Optional reviewer note / reason.")
+
+
 class Relevance(str, Enum):
     IN_SCOPE = "in_scope"          # plausibly deliverable by one of the firm's service lines
     OUT_OF_SCOPE = "out_of_scope"  # clear non-fit (e.g. shipbuilding for an accounting firm)

@@ -1,4 +1,4 @@
-"""StateGraph assembly — the single-agent spine with a relevance gate + two-tier deterministic routing.
+"""StateGraph assembly — single-agent spine + relevance gate + two-tier routing + review loop.
 
 START -> extract
            |-(junk)------> insufficient_info -> END
@@ -6,18 +6,25 @@ START -> extract
                               |-(out_of_scope)-> discard -> END        ("Not a fit" lane, with reason)
                               |-(in/uncertain)-> classify_service_line   (Tier 1, ranked)
                                                  -> classify_engagement  (Tier 2, per service line)
-                                                 -> qualify_with_skill -> score_fit -> route -> END
+                                                 -> qualify_with_skill -> score_fit -> route
+                                                 -> review  <-------------------+   (interrupt: leader acts)
+                                                      |-(return, not exhausted)-+   (the cycle)
+                                                      |-(accept/decline/exhausted)-> END
 
-The relevance gate catches clear non-fits BEFORE they're force-fit into a service line. Tier 1
-picks the service line (ranked); Tier 2 picks the engagement type within it; the matching skill
-then loads deterministically. Low confidence at either tier -> human review, not a guess.
+The review node offers the opportunity to the top-ranked service line and pauses via interrupt().
+A RETURN advances the cursor and loops back to re-offer the next candidate; accept, decline, or an
+exhausted list ends the run. This back-edge is what makes the graph a true stateful cycle, not a DAG.
+
+Compiled with a checkpointer so interrupt() can persist state across the human pause.
 """
 from __future__ import annotations
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import InMemorySaver
 from .state import OpportunityState
 from .nodes import (extract, route_after_extract, check_relevance, route_after_relevance,
                     discard, classify_service_line, classify_engagement,
-                    qualify_with_skill, score_fit, route, insufficient_info)
+                    qualify_with_skill, score_fit, route, review, route_after_review,
+                    insufficient_info)
 
 def build_graph():
     g = StateGraph(OpportunityState)
@@ -29,6 +36,7 @@ def build_graph():
     g.add_node("qualify_with_skill", qualify_with_skill)
     g.add_node("score_fit", score_fit)
     g.add_node("route", route)
+    g.add_node("review", review)
     g.add_node("insufficient_info", insufficient_info)
 
     g.add_edge(START, "extract")
@@ -40,9 +48,11 @@ def build_graph():
     g.add_edge("classify_engagement", "qualify_with_skill")
     g.add_edge("qualify_with_skill", "score_fit")
     g.add_edge("score_fit", "route")
-    g.add_edge("route", END)
+    g.add_edge("route", "review")
+    g.add_conditional_edges("review", route_after_review,
+                            {"review": "review", "done": END})
     g.add_edge("discard", END)
     g.add_edge("insufficient_info", END)
-    return g.compile()
+    return g.compile(checkpointer=InMemorySaver())
 
 agent = build_graph()

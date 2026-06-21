@@ -1,9 +1,10 @@
 """Pipeline state. Status flags drive routing and stay visible in the trace."""
 from __future__ import annotations
-from typing import List, Optional, TypedDict
+import operator
+from typing import Annotated, List, Optional, TypedDict
 from .schemas import (ExtractedOpportunity, ServiceLineClassification,
                       EngagementClassification, FitScore, Qualification,
-                      RoutingDecision, RelevanceCheck)
+                      RoutingDecision, RelevanceCheck, ReviewDecision)
 
 class OpportunityState(TypedDict, total=False):
     # input
@@ -18,4 +19,7 @@ class OpportunityState(TypedDict, total=False):
     qualification: Optional[Qualification]
     fit: Optional[FitScore]
     routing: Optional[RoutingDecision]
+    # review loop
+    offer_index: int                                                   # cursor into ranked candidates
+    review_log: Annotated[List[ReviewDecision], operator.add]          # accumulates across loop passes (reducer)
     errors: List[str]

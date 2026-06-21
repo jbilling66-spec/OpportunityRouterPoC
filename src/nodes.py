@@ -10,7 +10,7 @@ inside qualify_with_skill via load_skill(service_line, engagement_type).
 """
 
 from __future__ import annotations
-
+from langgraph.types import interrupt
 from . import routing
 from .config import icp
 from .llm import get_agent_llm
@@ -21,6 +21,8 @@ from .schemas import (
     Qualification,
     Relevance,
     RelevanceCheck,
+    ReviewAction,
+    ReviewDecision,
     RoutingDecision,
     ServiceLine,
     ServiceLineCandidate,
@@ -240,6 +242,136 @@ def route(state: OpportunityState) -> dict:
     qual: Qualification = state["qualification"]
     decision = routing.decide(sl_cls, eng_cls, fit, qual, state.get("extracted"))
     return {"routing": decision}
+
+# --- review: ranked-offer human-in-the-loop (the cycle) ----------------------
+
+def _team_for(service_line) -> str:
+    return routing.TEAM_MAP.get(service_line, "human_review")
+
+
+def review(state: OpportunityState) -> dict:
+    """Offer the opportunity to the current ranked candidate's team and pause for the leader.
+
+    interrupt() persists state and surfaces the offer; the leader resumes with
+    Command(resume={"action": "accept|decline|return", "corrected_service_line": <opt>, "note": <opt>}).
+    - accept  -> terminal: this team takes it.
+    - decline -> terminal: correctly routed, passed -> "Not a fit" lane. NOT an eval label.
+    - return  -> misrouted: log the gold label, advance the cursor, loop to offer the next candidate;
+                 if the ranked list is exhausted, land in "Not a fit" (no team claimed it).
+
+    review_log uses a reducer (operator.add) in state, so each pass returns ONLY the new
+    decision in a one-element list; LangGraph appends it. Paths that record nothing return [].
+    """
+    sl_cls: ServiceLineClassification = state["service_line_classification"]
+    candidates = sl_cls.ranked_candidates
+    i = state.get("offer_index", 0)
+
+    # Cursor past the end (or nothing to offer) -> no team claimed it.
+    if not candidates or i >= len(candidates):
+        return {"offer_index": i, "review_log": [],
+                "routing": RoutingDecision(
+                    target_team="not_a_fit", auto_routed=False,
+                    reason="No remaining ranked service line claimed this opportunity.")}
+
+    offered = candidates[i]
+    team = _team_for(offered.service_line)
+    ex = state.get("extracted")
+
+    # PAUSE. Everything above this line is a pure read of state, so it's safe to replay on resume.
+    raw = interrupt({
+        "opportunity": getattr(ex, "organization", "?"),
+        "offered_to": offered.service_line.value,
+        "team": team,
+        "offer_index": i,
+        "remaining_after_this": len(candidates) - i - 1,
+        "instructions": "Respond with action: accept | decline | return "
+                        "(+ optional corrected_service_line, note).",
+    })
+
+    action = ReviewAction(raw.get("action", "decline"))
+    decision = ReviewDecision(
+        action=action,
+        offered_service_line=offered.service_line,
+        corrected_service_line=(ServiceLine(raw["corrected_service_line"])
+                                if raw.get("corrected_service_line") else None),
+        note=raw.get("note", ""),
+    )
+
+    if action == ReviewAction.ACCEPT:
+        return {"review_log": [decision], "offer_index": i,
+                "routing": RoutingDecision(target_team=team, auto_routed=False,
+                                           reason=f"Accepted by {team} (offer #{i+1}).")}
+
+    if action == ReviewAction.DECLINE:
+        return {"review_log": [decision], "offer_index": i,
+                "routing": RoutingDecision(target_team="not_a_fit", auto_routed=False,
+                                           reason=f"Declined by {team} — correctly routed, passed.")}
+
+    # RETURN: misroute -> advance the cursor; exhaustion -> not_a_fit.
+    next_i = i + 1
+    if next_i >= len(candidates):
+        return {"review_log": [decision], "offer_index": next_i,
+                "routing": RoutingDecision(target_team="not_a_fit", auto_routed=False,
+                                           reason="Returned by every ranked service line — no team claimed it.")}
+    return {"review_log": [decision], "offer_index": next_i,
+            "routing": RoutingDecision(
+                target_team=_team_for(candidates[next_i].service_line), auto_routed=False,
+                reason=f"Returned by {team}; re-offering to {candidates[next_i].service_line.value}.")}
+
+    # PAUSE. Everything above this line is a pure read of state, so it's safe to replay on resume.
+    # On resume, `raw` is the dict the leader supplied via Command(resume=...).
+    raw = interrupt({
+        "opportunity": getattr(ex, "organization", "?"),
+        "offered_to": offered.service_line.value,
+        "team": team,
+        "offer_index": i,
+        "remaining_after_this": len(candidates) - i - 1,
+        "instructions": "Respond with action: accept | decline | return "
+                        "(+ optional corrected_service_line, note).",
+    })
+
+    action = ReviewAction(raw.get("action", "decline"))
+    decision = ReviewDecision(
+        action=action,
+        offered_service_line=offered.service_line,
+        corrected_service_line=(ServiceLine(raw["corrected_service_line"])
+                                if raw.get("corrected_service_line") else None),
+        note=raw.get("note", ""),
+    )
+    new_log = log + [decision]
+
+    if action == ReviewAction.ACCEPT:
+        return {"review_log": new_log, "offer_index": i,
+                "routing": RoutingDecision(target_team=team, auto_routed=False,
+                                           reason=f"Accepted by {team} (offer #{i+1}).")}
+
+    if action == ReviewAction.DECLINE:
+        return {"review_log": new_log, "offer_index": i,
+                "routing": RoutingDecision(target_team="not_a_fit", auto_routed=False,
+                                           reason=f"Declined by {team} — correctly routed, passed.")}
+
+    # RETURN: misroute -> advance the cursor; exhaustion -> not_a_fit.
+    next_i = i + 1
+    if next_i >= len(candidates):
+        return {"review_log": new_log, "offer_index": next_i,
+                "routing": RoutingDecision(target_team="not_a_fit", auto_routed=False,
+                                           reason="Returned by every ranked service line — no team claimed it.")}
+    return {"review_log": new_log, "offer_index": next_i,
+            "routing": RoutingDecision(
+                target_team=_team_for(candidates[next_i].service_line), auto_routed=False,
+                reason=f"Returned by {team}; re-offering to {candidates[next_i].service_line.value}.")}
+
+
+def route_after_review(state: OpportunityState) -> str:
+    """Loop or finish. Only an un-exhausted RETURN loops back to offer the next candidate."""
+    log = state.get("review_log", [])
+    if not log:
+        return "done"
+    last = log[-1]
+    if last.action != ReviewAction.RETURN:
+        return "done"                       # accept or decline -> terminal
+    candidates = state["service_line_classification"].ranked_candidates
+    return "review" if state.get("offer_index", 0) < len(candidates) else "done"
 
 
 # --- terminal: couldn't parse the document -----------------------------------
